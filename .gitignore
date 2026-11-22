@@ -1,0 +1,14 @@
+.env
+.env.*
+!.env.example
+*.local
+*.pem
+*.key
+*.p12
+*.jks
+*.log
+.DS_Store
+.idea/
+*.iml
+node_modules/
+dist/
