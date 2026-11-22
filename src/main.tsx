@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { Auth, CodeLogin, ProfileBotLinks } from './auth';
 import { Catalog } from './catalog';
-import { Api, errorText, goals, initials, text, type Client, type Trainer } from './model';
+import { Api, errorText, initials, text, type Client, type Trainer } from './model';
 import { Brand, Dialog, Empty, Form, Notice, Status, useResource } from './components';
 import { Workouts } from './workouts';
 import { Measurements } from './measurements';
@@ -126,7 +126,7 @@ function Workspace({ api, logout, profile, onProfile }: AccountProps & { profile
           <a key={c.id} href={'#clients/' + c.id} aria-current={c.id === clientId ? 'page' : undefined}>
             <span className={'avatar tone' + (c.id % 3)} aria-hidden="true">{initials(c.fullName)}</span>
             <span className="client-name">{c.fullName}
-              {!clientId && c.goal && <small>{goals[c.goal]}</small>}
+              {!clientId && c.goal && <small>{c.goal}</small>}
               {c.status === 'ARCHIVED' && <small>В архиве</small>}
             </span>
             {!clientId && <ChevronRight size={18} aria-hidden="true" />}
@@ -146,7 +146,7 @@ function Workspace({ api, logout, profile, onProfile }: AccountProps & { profile
             <UsersRound size={16} /> Подопечные
           </a>
           <a href="#exercises" aria-current={exercises ? 'page' : undefined}>
-            <Dumbbell size={16} /> Мои упражнения
+            <Dumbbell size={16} /> Упражнения
           </a>
         </nav>
         <button className="account" aria-label={`Профиль тренера, ${profile.fullName}`} onClick={() => setModal('account')}>
@@ -227,6 +227,9 @@ function Workspace({ api, logout, profile, onProfile }: AccountProps & { profile
 }
 
 function ClientForm({ api, client, done }: { api: Api; client?: Client; done: (c: Client) => void }) {
+  const [revision, setRevision] = useState(0);
+  const goals = useResource<{ id: number; name: string }[]>(api, '/catalog/goals', revision);
+  if (!goals.data) return <Status error={goals.error} retry={() => setRevision(n => n + 1)} />;
   return (
     <Form
       label={client ? 'Сохранить карточку' : 'Добавить подопечного'}
@@ -235,7 +238,7 @@ function ClientForm({ api, client, done }: { api: Api; client?: Client; done: (c
           await api.request<Client>(client ? '/clients/' + client.id : '/clients', client ? 'PUT' : 'POST', {
             fullName: text(d, 'name'),
             phone: text(d, 'phone') || null,
-            goal: text(d, 'goal') === 'keep' ? client?.goal : text(d, 'goal') || null,
+            goal: text(d, 'goal') || null,
             notes: text(d, 'notes') || null,
           }),
         );
@@ -252,14 +255,10 @@ function ClientForm({ api, client, done }: { api: Api; client?: Client; done: (c
         </label>
         <label>
           Цель
-          <select name="goal" defaultValue={client?.goal === 'REHAB' ? 'keep' : client?.goal ?? ''}>
+          <select name="goal" defaultValue={client?.goal ?? ''}>
             <option value="">Не указана</option>
-            {client?.goal === 'REHAB' && <option value="keep">Оставить текущую цель</option>}
-            {Object.entries(goals).filter(([k]) => k !== 'REHAB').map(([k, v]) => (
-              <option value={k} key={k}>
-                {v}
-              </option>
-            ))}
+            {client?.goal && !goals.data.some(g => g.name === client.goal) && <option>{client.goal}</option>}
+            {goals.data.map(g => <option key={g.id}>{g.name}</option>)}
           </select>
         </label>
       </div>
@@ -306,7 +305,7 @@ function ClientWorkspace({
           <div>
             <h1>{c.fullName}</h1>
             <p className="subtitle">
-              {c.goal ? goals[c.goal] : 'Подопечный'}
+              {c.goal ? c.goal : 'Подопечный'}
               {isArchived && ' · В архиве'}
             </p>
           </div>
@@ -340,7 +339,7 @@ function ClientWorkspace({
           <dl className="profiledata">
             {[
               ['Телефон', c.phone],
-              ['Цель', c.goal ? goals[c.goal] : null],
+              ['Цель', c.goal ? c.goal : null],
               ['Статус', isArchived ? 'В архиве' : 'Активный'],
               ['Заметки', c.notes],
             ].map(([k, v]) => (

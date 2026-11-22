@@ -112,9 +112,11 @@ export function CodeLogin({ username, signup, enter, back }: {
   const [opened, setOpened] = useState(() => sessionStorage.getItem(openedChallengeKey));
   const signupApi = signup?.api;
   const inUse = signup?.profile.signupTelegramInUse === true;
-  const enteringCode = !signup || !!signup.profile.telegramLinkedAt || (!!challenge && opened === challenge.challenge);
+  const approved = !!signup?.profile.approvedAt;
+  const linked = !!signup?.profile.telegramLinkedAt;
+  const enteringCode = !signup || approved;
   useEffect(() => {
-    if (inUse) return;
+    if (inUse || (linked && !approved)) return;
     const controller = new AbortController();
     let expiry: number | undefined;
     let retryTimer: number | undefined;
@@ -144,14 +146,23 @@ export function CodeLogin({ username, signup, enter, back }: {
     }
     void loadChallenge();
     return () => { controller.abort(); window.clearTimeout(retryTimer); window.clearTimeout(expiry); };
-  }, [username, signupApi, revision, inUse]);
-  const statusError = useTelegramProfile(signupApi, !!opened && !inUse && !signup?.profile.telegramLinkedAt,
+  }, [username, signupApi, revision, inUse, linked, approved]);
+  const statusError = useTelegramProfile(signupApi, !!signup && !inUse && !approved,
     signup?.onProfile);
   function retry() {
     sessionStorage.removeItem(openedChallengeKey);
     setOpened(null);
     setRevision(n => n + 1);
   }
+  if (signup && !inUse && !approved && (linked || (challenge && opened === challenge.challenge))) return <AuthLayout>
+    <h2>{linked ? 'Заявка на рассмотрении' : 'Откройте Telegram'}</h2>
+    <p className="muted">{linked ? 'Telegram привязан. После подтверждения администратором бот пришлёт код для входа.'
+      : 'Нажмите «Старт» в боте авторизации, чтобы передать заявку администратору.'}</p>
+    {!linked && challenge && <a className="primary" href={challenge.botUrl} target="_blank" rel="noopener noreferrer">Открыть бота</a>}
+    {!linked && <button className="plain" onClick={retry}>Получить новую ссылку</button>}
+    {statusError && <Notice>{statusError}</Notice>}
+    <button className="plain" onClick={back}>Вернуться ко входу</button>
+  </AuthLayout>;
   if (signup && inUse) return <AuthLayout>
     <h2>Этот аккаунт Telegram уже зарегистрирован</h2>
     <p className="muted">Войдите с Username существующего аккаунта.</p>
@@ -164,7 +175,7 @@ export function CodeLogin({ username, signup, enter, back }: {
     <p className="muted">{enteringCode
       ? (signup && !signup.profile.telegramLinkedAt ? 'Нажмите «Старт» в Telegram и вставьте сюда код из сообщения.'
         : `Введите или вставьте шестизначный код из Telegram для ${username}.`)
-      : 'Откройте бота авторизации и нажмите «Старт». Бот пришлёт код для регистрации.'}</p>
+      : 'Откройте бота авторизации и нажмите «Старт». После этого администратор увидит вашу заявку.'}</p>
     <div className="formstack">
       {enteringCode ?
         <Form key={revision} label="Войти" submitDisabled={!challenge} submit={async (data) => {

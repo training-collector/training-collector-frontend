@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { Plus, X } from 'lucide-react';
 import { Form, Status, useResource } from './components';
-import { CatalogExerciseForm } from './catalog';
 import {
   Api,
   localDateTime,
@@ -113,7 +112,7 @@ function ExerciseFields({
       </header>
       <input type="hidden" name="exerciseKeys" value={prefix} />
       <label>
-        Из моего списка
+        Из справочника
         <select name={prefix + 'choice'} defaultValue={savedInitial?.id ?? ''} required>
           <option value="" disabled>Выберите упражнение</option>
           {catalog.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
@@ -222,10 +221,7 @@ export function WorkoutForm({
   );
   const reload = () => setRev((n) => n + 1);
   if (!catalog.data) return <Status error={catalog.error} retry={reload} />;
-  if (!catalog.data.length) return <>
-    <p>Добавьте первое упражнение в свой список, чтобы выбрать его для тренировки.</p>
-    <CatalogExerciseForm api={api} onSaved={reload} />
-  </>;
+  if (!catalog.data.length) return <p>Администратор ещё не опубликовал упражнения для тренировок.</p>;
   const addOnly = workoutId !== undefined;
   return (
     <Form

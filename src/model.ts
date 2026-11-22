@@ -1,9 +1,3 @@
-export const goals = {
-  MASS_GAIN: 'Набор массы',
-  WEIGHT_LOSS: 'Похудение',
-  REHAB: 'Реабилитация',
-  MAINTENANCE: 'Поддержание',
-} as const;
 interface Person {
   id: number;
   fullName: string;
@@ -19,7 +13,7 @@ export interface Trainer extends Person {
   signupTelegramInUse: boolean;
 }
 export interface Client extends Person {
-  goal: keyof typeof goals | null;
+  goal: string | null;
   notes: string | null;
   status: 'ACTIVE' | 'ARCHIVED';
 }
