@@ -9,6 +9,7 @@
 *.log
 .DS_Store
 .idea/
+.vercel/
 *.iml
 node_modules/
 dist/
