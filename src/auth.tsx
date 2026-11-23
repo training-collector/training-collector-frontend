@@ -230,13 +230,23 @@ function useTelegramProfile(api: Api | undefined, watching: boolean,
       finally { busy = false; }
     };
     const checkVisible = () => { if (!document.hidden) void check(); };
-    void check();
-    const timer = window.setInterval(checkVisible, 4000);
-    window.addEventListener('focus', check);
-    document.addEventListener('visibilitychange', checkVisible);
+    let timer: number;
+    const watch = () => {
+      window.clearInterval(timer);
+      if (document.hidden) return;
+      void check();
+      const until = Date.now() + 5 * 60_000;
+      timer = window.setInterval(() => {
+        if (Date.now() >= until) window.clearInterval(timer);
+        else checkVisible();
+      }, 8000);
+    };
+    watch();
+    window.addEventListener('focus', watch);
+    document.addEventListener('visibilitychange', watch);
     return () => {
       controller.abort(); window.clearInterval(timer);
-      window.removeEventListener('focus', check); document.removeEventListener('visibilitychange', checkVisible);
+      window.removeEventListener('focus', watch); document.removeEventListener('visibilitychange', watch);
     };
   }, [api, watching, onProfile]);
   return watching ? error : '';
