@@ -3,10 +3,10 @@ interface Person {
   fullName: string;
 }
 export interface Trainer extends Person {
-  phone: string | null;
   username: string | null;
-  firstName: string | null;
+  firstName: string;
   lastName: string | null;
+  timeZone: string | null;
   telegramLinkedAt: string | null;
   approvedAt: string | null;
   trainingBotLinkedAt: string | null;
@@ -114,12 +114,29 @@ export class Api {
         res.status,
         message ||
           (res.status === 401
-            ? 'Сессия завершена. Войдите снова по коду из Telegram.'
+            ? 'Сессия завершена. Войдите снова и подтвердите вход в Telegram.'
             : 'Не удалось выполнить запрос (' + res.status + ').'),
       );
     }
     return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
   }
+}
+
+/** Sends a page failure to the server log. Hosted pages leave no other trace of it. */
+let reportsLeft = 3;
+export function reportError(error: unknown, stack = '') {
+  if (reportsLeft-- <= 0) return;
+  const detail = error instanceof Error ? error.stack || '' : '';
+  void fetch('/api/v1/client-errors', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    keepalive: true,
+    body: JSON.stringify({
+      message: String(error).slice(0, 300),
+      source: window.location.hash.slice(0, 80),
+      stack: (detail + '\n' + stack).slice(0, 1500),
+    }),
+  }).catch(() => {});
 }
 
 export const errorText = (error: unknown) =>

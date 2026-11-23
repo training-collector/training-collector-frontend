@@ -12,10 +12,10 @@ import {
   Search,
   UsersRound,
 } from 'lucide-react';
-import { Auth, CodeLogin, ProfileBotLinks } from './auth';
+import { Auth, ProfileBotLinks, Signup } from './auth';
 import { Catalog } from './catalog';
-import { Api, errorText, initials, text, type Client, type Trainer } from './model';
-import { Brand, Dialog, Empty, Form, Notice, Status, useResource } from './components';
+import { Api, initials, reportError, text, type Client, type Trainer } from './model';
+import { Brand, Dialog, Empty, ErrorBoundary, Form, Notice, Status, useResource } from './components';
 import { Workouts } from './workouts';
 import { Measurements } from './measurements';
 import './style.css';
@@ -29,13 +29,11 @@ function App() {
     if (stored) localStorage.removeItem(tokenKey);
     return '';
   });
-  const [logoutError, setLogoutError] = useState('');
   const [loginHint, setLoginHint] = useState('');
   function logout(expired = false) {
     if (localStorage.getItem(tokenKey) === token) localStorage.removeItem(tokenKey);
     setToken('');
     setSessionExpired(expired);
-    setLogoutError('');
   }
   const api = useMemo(() => new Api(token, () => logout(true)), [token]);
   function enter(value: string) {
@@ -44,17 +42,16 @@ function App() {
   }
   async function signOut(username = '') {
     try {
-      if (token.startsWith('session.') || token.startsWith('signup.')) await api.request('/auth/logout', 'POST');
-      window.location.replace('#clients');
-      setLoginHint(username);
-      logout();
-    } catch (error) { setLogoutError(errorText(error)); }
+      await api.request('/auth/logout', 'POST');
+    } catch {
+      // Without a connection the server cannot be told. This device still forgets the session.
+    }
+    window.location.replace('#clients');
+    setLoginHint(username);
+    logout();
   }
   return token ? (
-    <>
-      {logoutError && <Notice>{logoutError}</Notice>}
-      <Account key={token} api={api} logout={signOut} enter={enter} />
-    </>
+    <Account key={token} api={api} logout={signOut} enter={enter} />
   ) : (
     <Auth sessionExpired={sessionExpired} enter={enter} initialUsername={loginHint} />
   );
@@ -69,8 +66,7 @@ function Account(props: AccountProps) {
   const profile = verified || me.data;
   if (!profile) return <Status error={me.error} retry={() => setRev((n) => n + 1)} />;
   if (props.api.token.startsWith('signup.') || !profile.telegramLinkedAt) {
-    return <CodeLogin username={profile.username || profile.fullName}
-      signup={{ api: props.api, profile, onProfile: setVerified }}
+    return <Signup api={props.api} profile={profile} onProfile={setVerified}
       enter={props.enter} back={() => props.logout(profile.telegramLinkedAt ? profile.username ?? '' : '')} />;
   }
   if (!profile.approvedAt) return <div className="authinner"><p>Регистрация ожидает одобрения.</p>
@@ -105,6 +101,12 @@ function Workspace({ api, logout, profile, onProfile }: AccountProps & { profile
   }, []);
   const refresh = () => setVersion((n) => n + 1);
   const close = () => setModal(null);
+  // The bot shows "today" and workout dates in the time zone of the trainer's browser.
+  useEffect(() => {
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (!zone || zone === profile.timeZone) return;
+    api.request<Trainer>('/trainers/me/time-zone', 'PUT', { timeZone: zone }).then(onProfile, () => {});
+  }, [api, profile.timeZone, onProfile]);
   return (
     <>
       <header className="top">
@@ -166,7 +168,6 @@ function Workspace({ api, logout, profile, onProfile }: AccountProps & { profile
 function TrainerIdentity({ api, profile, onProfile }: { api: Api; profile: Trainer; onProfile: (profile: Trainer) => void }) {
   const [editing, setEditing] = useState(false);
   if (editing) {
-    const [first, ...rest] = profile.fullName.trim().split(/\s+/);
     return <Form label="Сохранить" secondaryAction={<button type="button" className="plain" onClick={() => setEditing(false)}>Отмена</button>}
       submit={async data => {
         const saved = await api.request<Trainer>('/trainers/me', 'PUT', {
@@ -176,9 +177,8 @@ function TrainerIdentity({ api, profile, onProfile }: { api: Api; profile: Train
         setEditing(false);
       }}>
       <div className="fields two">
-        <label>Имя<input name="firstName" autoFocus required maxLength={253} autoComplete="given-name" defaultValue={profile.firstName ?? first} /></label>
-        <label>Фамилия<input name="lastName" required maxLength={253} autoComplete="family-name"
-          defaultValue={profile.lastName ?? (profile.firstName ? '' : rest.join(' '))} /></label>
+        <label>Имя<input name="firstName" autoFocus required maxLength={253} autoComplete="given-name" defaultValue={profile.firstName} /></label>
+        <label>Фамилия<input name="lastName" required maxLength={253} autoComplete="family-name" defaultValue={profile.lastName ?? ''} /></label>
       </div>
     </Form>;
   }
@@ -187,7 +187,6 @@ function TrainerIdentity({ api, profile, onProfile }: { api: Api; profile: Train
     <div className="trainer-names">
       <strong>{profile.fullName}</strong>
       <small>{profile.username}</small>
-      {profile.phone && <small>{profile.phone}</small>}
     </div>
     <button className="soft" aria-label="Изменить имя и фамилию" onClick={() => setEditing(true)}><Pencil size={15} /> Изменить</button>
   </div>;
@@ -421,4 +420,6 @@ function ClientWorkspace({
   );
 }
 
-createRoot(document.getElementById('root')!).render(<App />);
+window.addEventListener('error', (event) => reportError(event.error ?? event.message));
+window.addEventListener('unhandledrejection', (event) => reportError(event.reason));
+createRoot(document.getElementById('root')!).render(<ErrorBoundary><App /></ErrorBoundary>);

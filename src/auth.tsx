@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Send } from 'lucide-react';
 import { Brand, Form, Notice, Status, useResource } from './components';
 import { Api, ApiError, errorText, text, type Trainer } from './model';
@@ -11,7 +11,7 @@ function AuthLayout({ children }: { children: ReactNode }) {
       </header>
       <main className="authgrid">
         <section className="cover">
-          <img src="/gym.jpg" alt="" />
+          <img src="/gym.jpg" alt="" width={1400} height={933} />
           <div className="covertext">
             <span className="coverline" />
             <h1>
@@ -34,7 +34,7 @@ function AuthLayout({ children }: { children: ReactNode }) {
 export function Auth({ enter, sessionExpired, initialUsername }: { enter: (token: string) => void; sessionExpired: boolean; initialUsername: string }) {
   const [signup, setSignup] = useState(false);
   const [loginName, setLoginName] = useState('');
-  if (loginName) return <CodeLogin username={loginName} enter={enter} back={() => setLoginName('')} />;
+  if (loginName) return <LoginConfirm username={loginName} enter={enter} back={() => setLoginName('')} backLabel="Вернуться ко входу" />;
   return (
     <AuthLayout>
       <h2>{signup ? 'Создать аккаунт' : 'Войти в кабинет'}</h2>
@@ -62,157 +62,172 @@ export function Auth({ enter, sessionExpired, initialUsername }: { enter: (token
   );
 }
 
-interface Challenge { challenge: string; botUrl: string; expiresAt: string; deliveryDelaySeconds?: number }
-const openedChallengeKey = 'training-collector.opened-login';
+interface Link { url: string; expiresAt: string }
 
-function CodeDigits() {
-  const [digits, setDigits] = useState<string[]>(() => Array(6).fill(''));
-  const inputs = useRef<(HTMLInputElement | null)[]>([]);
-  function focus(index: number) {
-    const field = inputs.current[index];
-    field?.focus();
-    field?.select();
-  }
-  function write(index: number, value: string) {
-    const numbers = value.replace(/\s/g, '');
-    if (!/^[0-9]{0,6}$/.test(numbers)) return;
-    const start = numbers.length === 6 ? 0 : index;
-    setDigits(previous => {
-      const next = [...previous];
-      const replacement = numbers ? [...numbers] : [''];
-      next.splice(start, replacement.length, ...replacement);
-      return next.slice(0, 6);
-    });
-    if (numbers) focus(Math.min(start + numbers.length, 5));
-  }
-  return <div className="code-digits" role="group" aria-label="Одноразовый код из шести цифр">
-    {digits.map((digit, i) => <input key={i} ref={el => { inputs.current[i] = el; }}
-      aria-label={`Цифра ${i + 1} из 6`} name="digit" type="text" inputMode="numeric"
-      autoComplete={i === 0 ? 'one-time-code' : 'off'} required pattern="[0-9]" value={digit}
-      autoFocus={i === 0} onFocus={e => e.currentTarget.select()} onClick={e => e.currentTarget.select()}
-      onChange={e => write(i, e.currentTarget.value)}
-      onPaste={e => { e.preventDefault(); write(i, e.clipboardData.getData('text')); }}
-      onKeyDown={e => {
-        if (e.key === 'Backspace' && !digit && i > 0) {
-          e.preventDefault(); write(i - 1, ''); focus(i - 1);
-        } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-          e.preventDefault(); focus(i + (e.key === 'ArrowLeft' ? -1 : 1));
-        }
-      }} />)}
-  </div>;
-}
-
-export function CodeLogin({ username, signup, enter, back }: {
-  username: string; enter: (token: string) => void; back: () => void;
-  signup?: { api: Api; profile: Trainer; onProfile: (profile: Trainer) => void };
-}) {
-  const [challenge, setChallenge] = useState<Challenge>();
-  const [error, setError] = useState('');
-  const [request, setRequest] = useState({ revision: 0, resend: false });
-  const [opened, setOpened] = useState(() => sessionStorage.getItem(openedChallengeKey));
-  const signupApi = signup?.api;
-  const inUse = signup?.profile.signupTelegramInUse === true;
-  const approved = !!signup?.profile.approvedAt;
-  const linked = !!signup?.profile.telegramLinkedAt;
-  const enteringCode = !signup || approved;
+/** Runs a request when the screen opens. A bot that is still starting (503) is retried a few times. */
+function useRequest<T>(send: (signal: AbortSignal) => Promise<T>, deps: unknown[], onLoaded?: (result: T) => (() => void) | void) {
+  const [state, setState] = useState<{ data?: T; error?: string }>({});
   useEffect(() => {
-    if (inUse || (linked && !approved)) return;
     const controller = new AbortController();
-    let expiry: number | undefined;
     let retryTimer: number | undefined;
     let retriesLeft = 5;
-    setError(''); setChallenge(undefined);
-    async function loadChallenge() {
+    let cleanup: (() => void) | void;
+    setState({});
+    async function load() {
       try {
-        const result: Challenge = signupApi && !approved
-          ? await signupApi.request<Link & { challenge: string }>('/trainers/me/telegram-link', 'POST', undefined, controller.signal)
-              .then(({ url, challenge, expiresAt }) => ({ botUrl: url, challenge, expiresAt }))
-          : await new Api().request<Challenge>('/auth/login', 'POST', { username, resend: request.resend }, controller.signal);
+        const data = await send(controller.signal);
         if (controller.signal.aborted) return;
-        if (!result.challenge || !result.botUrl) throw new Error('Не удалось запросить код. Попробуйте ещё раз.');
-        setChallenge(result);
-        if (!enteringCode) {
-          expiry = window.setTimeout(() => {
-            setChallenge(undefined); setError('Срок действия ссылки истёк.');
-          }, Math.max(0, Date.parse(result.expiresAt) - Date.now()));
-        }
+        setState({ data });
+        cleanup = onLoaded?.(data);
       } catch (e) {
         if (controller.signal.aborted) return;
         if (e instanceof ApiError && e.status === 503 && retriesLeft > 0) {
           retriesLeft--;
-          retryTimer = window.setTimeout(loadChallenge, 2000);
+          retryTimer = window.setTimeout(load, 2000);
         } else {
-          setError(errorText(e));
+          setState({ error: errorText(e) });
         }
       }
     }
-    void loadChallenge();
-    return () => { controller.abort(); window.clearTimeout(retryTimer); window.clearTimeout(expiry); };
-  }, [username, signupApi, request, inUse, linked, approved, enteringCode]);
-  const statusError = useTelegramProfile(signupApi, !!signup && !inUse && !approved,
-    signup?.onProfile);
-  function retry() {
-    sessionStorage.removeItem(openedChallengeKey);
-    setOpened(null);
-    setRequest(previous => ({ revision: previous.revision + 1, resend: enteringCode }));
-  }
-  if (signup && !inUse && !approved && (linked || (challenge && opened === challenge.challenge))) return <AuthLayout>
-    <h2>{linked ? 'Заявка на рассмотрении' : 'Откройте Telegram'}</h2>
-    <p className="muted">{linked ? 'Telegram привязан. После подтверждения администратором бот пришлёт код для входа.'
-      : 'Нажмите «Старт» в боте авторизации, чтобы передать заявку администратору.'}</p>
-    {!linked && challenge && <a className="primary" href={challenge.botUrl} target="_blank" rel="noopener noreferrer">Открыть бота</a>}
-    {!linked && <button className="plain" onClick={retry}>Получить новую ссылку</button>}
-    {statusError && <Notice>{statusError}</Notice>}
-    <button className="plain" onClick={back}>Вернуться ко входу</button>
-  </AuthLayout>;
-  if (signup && inUse) return <AuthLayout>
+    void load();
+    return () => { controller.abort(); window.clearTimeout(retryTimer); cleanup?.(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps);
+  return [state, setState] as const;
+}
+
+/** Registration after the form: link Telegram, wait for the administrator, then confirm the first sign-in. */
+export function Signup({ api, profile, onProfile, enter, back }: {
+  api: Api; profile: Trainer; onProfile: (profile: Trainer) => void; enter: (token: string) => void; back: () => void;
+}) {
+  if (profile.signupTelegramInUse) return <AuthLayout>
     <h2>Этот аккаунт Telegram уже зарегистрирован</h2>
     <p className="muted">Войдите с Username существующего аккаунта.</p>
     <div className="formstack">
       <button className="primary" onClick={back}>Перейти ко входу</button>
     </div>
   </AuthLayout>;
+  if (profile.approvedAt) return <LoginConfirm username={profile.username || profile.fullName} enter={enter} back={back} backLabel="Выйти из регистрации" />;
+  return <TelegramLink api={api} linked={!!profile.telegramLinkedAt} onProfile={onProfile} back={back} />;
+}
+
+/** Issues the personal bot link and follows the application until the administrator approves it. */
+function TelegramLink({ api, linked, onProfile, back }: {
+  api: Api; linked: boolean; onProfile: (profile: Trainer) => void; back: () => void;
+}) {
+  const [revision, setRevision] = useState(0);
+  const [opened, setOpened] = useState('');
+  const [request, setRequest] = useRequest<Link | null>(
+    (signal) => linked ? Promise.resolve(null) : api.request<Link>('/trainers/me/telegram-link', 'POST', undefined, signal),
+    [api, linked, revision],
+    (link) => {
+      if (!link) return;
+      const expiry = window.setTimeout(() => setRequest({ error: 'Срок действия ссылки истёк.' }), Math.max(0, Date.parse(link.expiresAt) - Date.now()));
+      return () => window.clearTimeout(expiry);
+    });
+  const link = request.data;
+  const statusError = useTelegramProfile(api, true, onProfile);
+  const retry = () => { setOpened(''); setRevision((n) => n + 1); };
+  if (linked || (link && opened === link.url)) return <AuthLayout>
+    <h2>{linked ? 'Заявка на рассмотрении' : 'Откройте Telegram'}</h2>
+    <p className="muted">{linked ? 'Telegram привязан. После подтверждения администратором вход откроется на этой странице.'
+      : 'Нажмите «Старт» в боте авторизации, чтобы передать заявку администратору.'}</p>
+    {!linked && link && <a className="primary" href={link.url} target="_blank" rel="noopener noreferrer">Открыть бота</a>}
+    {!linked && <button className="plain" onClick={retry}>Получить новую ссылку</button>}
+    {statusError && <Notice>{statusError}</Notice>}
+    <button className="plain" onClick={back}>Вернуться ко входу</button>
+  </AuthLayout>;
+  const error = request.error || statusError;
   return <AuthLayout>
-    <h2>{enteringCode ? 'Введите код' : 'Подключите Telegram'}</h2>
-    <p className="muted">{enteringCode
-      ? (signup && !signup.profile.telegramLinkedAt ? 'Нажмите «Старт» в Telegram и вставьте сюда код из сообщения.'
-        : `Введите или вставьте шестизначный код из Telegram для ${username}.`)
-      : 'Откройте бота авторизации и нажмите «Старт». После этого администратор увидит вашу заявку.'}</p>
+    <h2>Подключите Telegram</h2>
+    <p className="muted">Откройте бота авторизации и нажмите «Старт». После этого администратор увидит вашу заявку.</p>
     <div className="formstack">
-      {enteringCode ?
-        <Form key={request.revision} label="Войти" submitDisabled={!challenge} submit={async (data) => {
-          if (!challenge) return;
-          const result = await new Api().request<{ token: string }>('/auth/login/verify', 'POST', {
-            username, code: data.getAll('digit').join(''),
-          });
-          sessionStorage.removeItem(openedChallengeKey);
-          enter(result.token);
-        }}>
-          <CodeDigits />
-        </Form> :
-        challenge ? <a className="primary" href={challenge.botUrl} target="_blank" rel="noopener noreferrer" onClick={() => {
-          sessionStorage.setItem(openedChallengeKey, challenge.challenge);
-          setOpened(challenge.challenge);
-        }}><Send size={16} /> Открыть бота авторизации</a> :
-        !error && <button className="primary" disabled><Send size={16} /> Открыть бота авторизации</button>
-      }
-      {(error || statusError) && <Notice>{error || statusError}</Notice>}
-      {request.resend && challenge && <p className="muted" role="status">
-        {challenge.deliveryDelaySeconds ? `Повторная отправка запланирована примерно через ${challenge.deliveryDelaySeconds} с.`
-          : 'Повторная отправка запрошена.'} Введите код из последнего сообщения бота.
-      </p>}
-      {!challenge && !error && <p role="status">{enteringCode ? 'Запрашиваем код…' : 'Готовим ссылку…'}</p>}
-      {!signup && challenge && <a className="code-chat-link" href={challenge.botUrl} target="_blank" rel="noopener noreferrer">Открыть чат с ботом</a>}
-      {((enteringCode && challenge) || error) && <button className={enteringCode ? 'plain' : 'primary'} onClick={retry}>
-        {enteringCode ? 'Запросить код повторно' : 'Обновить ссылку'}
-      </button>}
-      <button className="plain" onClick={back}>{signup ? 'Выйти из регистрации' : 'Вернуться ко входу'}</button>
+      {link ? <a className="primary" href={link.url} target="_blank" rel="noopener noreferrer" onClick={() => setOpened(link.url)}>
+          <Send size={16} /> Открыть бота авторизации</a>
+        : !request.error && <button className="primary" disabled><Send size={16} /> Открыть бота авторизации</button>}
+      {error && <Notice>{error}</Notice>}
+      {!link && !request.error && <p role="status">Готовим ссылку…</p>}
+      {request.error && <button className="primary" onClick={retry}>Обновить ссылку</button>}
+      <button className="plain" onClick={back}>Выйти из регистрации</button>
     </div>
   </AuthLayout>;
 }
 
-interface Link { url: string; expiresAt: string }
+type LoginState = 'PENDING' | 'APPROVED' | 'DENIED' | 'EXPIRED';
+interface LoginStart { secret: string; number: number; botUrl: string; expiresAt: string }
 
+/**
+ * Sends a sign-in request to the auth bot and waits for the trainer to allow it there.
+ * Only this page knows the request's secret, so only it receives the session.
+ */
+function LoginConfirm({ username, enter, back, backLabel }: {
+  username: string; enter: (token: string) => void; back: () => void; backLabel: string;
+}) {
+  const [revision, setRevision] = useState(0);
+  const [state, setState] = useState<LoginState>('PENDING');
+  const [statusError, setStatusError] = useState('');
+  const [request] = useRequest<LoginStart>(async (signal) => {
+    setState('PENDING');
+    setStatusError('');
+    const result = await new Api().request<LoginStart>('/auth/login', 'POST', { username }, signal);
+    if (!result.secret || !result.botUrl) throw new Error('Не удалось отправить запрос. Попробуйте ещё раз.');
+    return result;
+  }, [username, revision]);
+  const login = request.data;
+  useEffect(() => {
+    if (!login || state !== 'PENDING') return;
+    const controller = new AbortController();
+    let busy = false;
+    const check = async () => {
+      if (busy || document.hidden) return;
+      if (Date.now() >= Date.parse(login.expiresAt)) { setState('EXPIRED'); return; }
+      busy = true;
+      try {
+        const result = await new Api().request<{ status: LoginState; token?: string }>(
+          '/auth/login/status', 'POST', { secret: login.secret }, controller.signal);
+        if (controller.signal.aborted) return;
+        setStatusError('');
+        if (result.status === 'APPROVED' && result.token) enter(result.token);
+        else if (result.status !== 'PENDING') setState(result.status);
+      } catch (e) {
+        if (!controller.signal.aborted) setStatusError(errorText(e));
+      } finally { busy = false; }
+    };
+    const timer = window.setInterval(check, 2000);
+    window.addEventListener('focus', check);
+    document.addEventListener('visibilitychange', check);
+    return () => {
+      controller.abort(); window.clearInterval(timer);
+      window.removeEventListener('focus', check); document.removeEventListener('visibilitychange', check);
+    };
+  }, [login, state, enter]);
+  const again = () => setRevision((n) => n + 1);
+  return <AuthLayout>
+    <h2>Подтвердите вход</h2>
+    {!login && !request.error && <p role="status">Отправляем запрос в Telegram…</p>}
+    {login && state === 'PENDING' && <>
+      <p className="muted">Бот авторизации прислал запрос для {username}. Нажмите в нём «Разрешить вход», если там то же число:</p>
+      <p className="login-number" aria-label={'Число для сверки ' + login.number}>{login.number}</p>
+      <p className="muted" role="status">Ждём подтверждения в Telegram. Если сообщения нет, проверьте Username и нажмите «Старт» в боте.</p>
+    </>}
+    <div className="formstack">
+      {request.error && <Notice>{request.error}</Notice>}
+      {state === 'DENIED' && <Notice>Вход отклонён в Telegram.</Notice>}
+      {state === 'EXPIRED' && <Notice>Запрос устарел. Отправьте новый.</Notice>}
+      {statusError && state === 'PENDING' && <Notice>{statusError}</Notice>}
+      {login && <a className="code-chat-link" href={login.botUrl} target="_blank" rel="noopener noreferrer">Открыть чат с ботом</a>}
+      {(login || request.error) && <button className={state === 'PENDING' && !request.error ? 'plain' : 'primary'} onClick={again}>
+        Отправить запрос ещё раз
+      </button>}
+      <button className="plain" onClick={back}>{backLabel}</button>
+    </div>
+  </AuthLayout>;
+}
+
+/**
+ * Follows the trainer's profile while a change is expected from Telegram or the administrator:
+ * every few seconds at first, then once a minute, and again whenever the trainer returns to the page.
+ */
 function useTelegramProfile(api: Api | undefined, watching: boolean,
   onProfile: ((profile: Trainer) => void) | undefined) {
   const [error, setError] = useState('');
@@ -229,24 +244,32 @@ function useTelegramProfile(api: Api | undefined, watching: boolean,
       } catch (e) { if (!controller.signal.aborted) setError(errorText(e)); }
       finally { busy = false; }
     };
-    const checkVisible = () => { if (!document.hidden) void check(); };
-    let timer: number;
-    const watch = () => {
-      window.clearInterval(timer);
-      if (document.hidden) return;
-      void check();
-      const until = Date.now() + 5 * 60_000;
-      timer = window.setInterval(() => {
-        if (Date.now() >= until) window.clearInterval(timer);
-        else checkVisible();
-      }, 8000);
+    let timer: number | undefined;
+    let started = 0;
+    let active = false;
+    const schedule = () => {
+      window.clearTimeout(timer);
+      const elapsed = Date.now() - started;
+      active = !document.hidden && elapsed < 30 * 60_000;
+      if (!active) return;
+      timer = window.setTimeout(async () => { await check(); schedule(); }, elapsed < 5 * 60_000 ? 8000 : 60_000);
     };
+    const watch = () => {
+      started = Date.now();
+      if (!document.hidden) void check();
+      schedule();
+    };
+    // A page left open stops asking after half an hour. Any activity on it starts a new round.
+    const resume = () => { if (!active) watch(); };
     watch();
     window.addEventListener('focus', watch);
     document.addEventListener('visibilitychange', watch);
+    window.addEventListener('pointerdown', resume);
+    window.addEventListener('keydown', resume);
     return () => {
-      controller.abort(); window.clearInterval(timer);
+      controller.abort(); window.clearTimeout(timer);
       window.removeEventListener('focus', watch); document.removeEventListener('visibilitychange', watch);
+      window.removeEventListener('pointerdown', resume); window.removeEventListener('keydown', resume);
     };
   }, [api, watching, onProfile]);
   return watching ? error : '';

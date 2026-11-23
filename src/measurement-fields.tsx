@@ -37,7 +37,7 @@ function BodyDiagram() {
   const top = (height - imageHeight) / 2;
   return <div className="body-diagram" ref={frame}>
     {width > 0 && <>
-      <img src="/body-measurements.png" alt="Фигура человека спереди"
+      <img src="/body-measurements.png" alt="Фигура человека спереди" width={512} height={941}
         style={{ left, top, width: imageWidth, height: imageHeight }} />
       <svg aria-hidden="true" focusable="false">
         {locations.map(({ key, side, row, x, y }) => {

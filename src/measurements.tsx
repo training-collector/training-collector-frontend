@@ -16,12 +16,23 @@ import {
 
 type Action = { kind: 'create' } | { kind: 'edit' | 'delete'; value: Measurement };
 
+/** The latest value of every metric. The history comes newest first. */
+function latest(history: Measurement[]): Current {
+  const result: Current = {};
+  for (const row of history)
+    for (const key of metricKeys) {
+      const value = row[key];
+      if (value != null && !result[key]) result[key] = { value, measuredOn: row.measuredOn };
+    }
+  return result;
+}
+
 export function Measurements({ api, clientId }: { api: Api; clientId: number }) {
   const [version, setVersion] = useState(0),
     [action, setAction] = useState<Action | null>(null);
   const path = '/clients/' + clientId + '/measurements';
-  const current = useResource<Current>(api, path + '/current', version);
   const history = useResource<Measurement[]>(api, path, version);
+  const current = history.data && latest(history.data);
   const refresh = () => setVersion((v) => v + 1);
   const done = () => {
     setAction(null);
@@ -35,16 +46,16 @@ export function Measurements({ api, clientId }: { api: Api; clientId: number }) 
           <Plus size={17} /> Добавить замер
         </button>
       </div>
-      {!current.data ? (
-        <Status error={current.error} retry={refresh} />
-      ) : Object.keys(current.data).length === 0 ? (
+      {!current ? (
+        <Status error={history.error} retry={refresh} />
+      ) : Object.keys(current).length === 0 ? (
         <Empty title="Показателей пока нет">
           <p>Добавьте рост, вес или любой из обхватов подопечного.</p>
         </Empty>
       ) : (
         <div className="metricgrid">
           {metricKeys.map((k) => {
-            const m = current.data?.[k];
+            const m = current[k];
             return (
               m && (
                 <div className="metric" key={k}>

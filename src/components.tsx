@@ -1,6 +1,28 @@
-import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { Component, useEffect, useId, useRef, useState, type ErrorInfo, type FormEvent, type ReactNode } from 'react';
 import { Activity, AlertCircle, X } from 'lucide-react';
-import { Api, ApiError, errorText } from './model';
+import { Api, ApiError, errorText, reportError } from './model';
+
+/** Shows a way out instead of a blank page when rendering fails, and reports the failure. */
+export class ErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  componentDidCatch(error: unknown, info: ErrorInfo) {
+    reportError(error, info.componentStack ?? '');
+  }
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return (
+      <div className="authinner">
+        <Notice>Что-то пошло не так. Обновите страницу.</Notice>
+        <button className="primary" onClick={() => window.location.reload()}>
+          Обновить страницу
+        </button>
+      </div>
+    );
+  }
+}
 
 export function Brand() {
   return (

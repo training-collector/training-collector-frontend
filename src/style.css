@@ -340,36 +340,19 @@ strong {
 .authpanel .formstack form .formstack {
   margin-top: 0;
 }
-.code-digits {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: clamp(5px, 1vw, 10px);
-}
-.code-digits input {
-  height: clamp(48px, 7vw, 62px);
-  padding: 0;
+.login-number {
+  margin: 4px 0 0;
   text-align: center;
-  font-size: clamp(1.4rem, 3vw, 1.85rem);
-  font-weight: 600;
+  font-size: clamp(2.6rem, 7vw, 3.4rem);
+  font-weight: 700;
+  letter-spacing: .06em;
   font-variant-numeric: tabular-nums;
-  border: 1px solid var(--silver);
-  border-radius: 10px;
-}
-.code-digits input:valid { background: var(--soft); }
-.code-digits input:focus {
-  background: white;
-  border-color: var(--ink);
-  outline: 2px solid var(--ink);
-  outline-offset: 1px;
 }
 .code-chat-link {
   align-self: center;
   color: var(--muted);
   font-size: .91rem;
   text-underline-offset: 3px;
-}
-.authsecondary {
-  margin-top: 12px;
 }
 .formstack {
   display: flex;
