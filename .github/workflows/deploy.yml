@@ -56,16 +56,22 @@ jobs:
   deploy:
     needs: image
     runs-on: ubuntu-24.04
+    # The job's token can read this repository's image; the server pulls with it and keeps nothing.
+    permissions:
+      contents: read
+      packages: read
     steps:
       - name: Roll out on the server
         env:
           HOST: ${{ secrets.DEPLOY_HOST }}
           SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          REGISTRY_USER: ${{ github.actor }}
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if [ -z "$HOST" ]; then echo "DEPLOY_HOST is not set; skipping the rollout"; exit 0; fi
           install -d -m 700 ~/.ssh
           printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy && chmod 600 ~/.ssh/deploy
           printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
           # The key can run only the deploy script on the server; the argument names the service.
-          ssh -i ~/.ssh/deploy -o IdentitiesOnly=yes deploy@"$HOST" frontend
+          printf '%s\n%s\n' "$REGISTRY_USER" "$REGISTRY_TOKEN" | ssh -i ~/.ssh/deploy -o IdentitiesOnly=yes deploy@"$HOST" frontend
