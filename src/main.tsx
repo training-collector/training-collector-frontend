@@ -1,8 +1,7 @@
-import { useMemo, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   Archive,
-  BookOpen,
   ChevronRight,
   ClipboardList,
   Dumbbell,
@@ -31,6 +30,7 @@ function App() {
     return '';
   });
   const [logoutError, setLogoutError] = useState('');
+  const [loginHint, setLoginHint] = useState('');
   function logout(expired = false) {
     if (localStorage.getItem(tokenKey) === token) localStorage.removeItem(tokenKey);
     setToken('');
@@ -42,9 +42,11 @@ function App() {
     localStorage.setItem(tokenKey, value);
     setToken(value);
   }
-  async function signOut() {
+  async function signOut(username = '') {
     try {
       if (token.startsWith('session.') || token.startsWith('signup.')) await api.request('/auth/logout', 'POST');
+      window.location.replace('#clients');
+      setLoginHint(username);
       logout();
     } catch (error) { setLogoutError(errorText(error)); }
   }
@@ -54,11 +56,11 @@ function App() {
       <Account key={token} api={api} logout={signOut} enter={enter} />
     </>
   ) : (
-    <Auth sessionExpired={sessionExpired} enter={enter} />
+    <Auth sessionExpired={sessionExpired} enter={enter} initialUsername={loginHint} />
   );
 }
 
-interface AccountProps { api: Api; logout: () => void; enter: (token: string) => void }
+interface AccountProps { api: Api; logout: (username?: string) => void; enter: (token: string) => void }
 
 function Account(props: AccountProps) {
   const [rev, setRev] = useState(0);
@@ -69,7 +71,7 @@ function Account(props: AccountProps) {
   if (props.api.token.startsWith('signup.') || !profile.telegramLinkedAt) {
     return <CodeLogin username={profile.username || profile.fullName}
       signup={{ api: props.api, profile, onProfile: setVerified }}
-      enter={props.enter} back={props.logout} />;
+      enter={props.enter} back={() => props.logout(profile.telegramLinkedAt ? profile.username ?? '' : '')} />;
   }
   if (!profile.approvedAt) return <div className="authinner"><p>Регистрация ожидает одобрения.</p>
     <button className="plain" onClick={() => props.logout()}>Выйти</button></div>;
@@ -81,62 +83,28 @@ function subscribeToRoute(change: () => void) {
   return () => window.removeEventListener('hashchange', change);
 }
 
-function ClientBreadcrumbs({ name }: { name?: string }) {
-  return <nav className="crumb" aria-label="Путь по кабинету">
-    <a href="#clients"><BookOpen size={16} aria-hidden="true" /> Журнал тренера</a>
-    <span aria-hidden="true">/</span>
-    {name ? <>
-      <a href="#clients">Подопечные</a>
-      <span aria-hidden="true">/</span>
-      <span aria-current="page">{name}</span>
-    </> : <span aria-current="page">Подопечные</span>}
-  </nav>;
-}
-
 function Workspace({ api, logout, profile, onProfile }: AccountProps & { profile: Trainer; onProfile: (me: Trainer) => void }) {
   const hash = useSyncExternalStore(subscribeToRoute, () => window.location.hash);
-  const exercises = hash === '#exercises';
+  const categoryMatch = /^#exercises\/([1-9]\d*)$/.exec(hash);
+  const exercises = hash === '#exercises' || !!categoryMatch;
   const match = /^#clients\/([1-9]\d*)$/.exec(hash);
   const clientId = match && Number.isSafeInteger(Number(match[1])) ? Number(match[1]) : null;
   const [version, setVersion] = useState(0);
   const [query, setQuery] = useState(''),
     [archived, setArchived] = useState(false);
   const [modal, setModal] = useState<'client' | 'account' | null>(null);
-  const list = useResource<Client[]>(api, '/clients?includeArchived=' + archived, version);
-  const shown = list.data?.filter((c) =>
-    c.fullName.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()),
-  );
+  const [unavailableClient, setUnavailableClient] = useState(false);
+  useEffect(() => {
+    if (hash !== '#clients') setUnavailableClient(false);
+  }, [hash]);
+  const returnFromUnavailableClient = useCallback((id: number) => {
+    if (window.location.hash === '#clients/' + id) {
+      setUnavailableClient(true);
+      window.location.replace('#clients');
+    }
+  }, []);
   const refresh = () => setVersion((n) => n + 1);
   const close = () => setModal(null);
-  const filters = <>
-    <label className="search">
-      <Search size={17} />
-      <input type="search" aria-label="Поиск подопечного" placeholder="Поиск по имени"
-        value={query} onChange={(e) => setQuery(e.target.value)} />
-    </label>
-    <label className="check">
-      <input type="checkbox" checked={archived} onChange={(e) => setArchived(e.target.checked)} />
-      Включая архив
-    </label>
-  </>;
-  const clients = !shown ? <Status error={list.error} retry={refresh} />
-    : shown.length ? (
-      <nav className={clientId ? 'clientlist' : 'directory-list'} aria-label="Список подопечных">
-        {shown.map((c) => (
-          <a key={c.id} href={'#clients/' + c.id} aria-current={c.id === clientId ? 'page' : undefined}>
-            <span className={'avatar tone' + (c.id % 3)} aria-hidden="true">{initials(c.fullName)}</span>
-            <span className="client-name">{c.fullName}
-              {!clientId && c.goal && <small>{c.goal}</small>}
-              {c.status === 'ARCHIVED' && <small>В архиве</small>}
-            </span>
-            {!clientId && <ChevronRight size={18} aria-hidden="true" />}
-          </a>
-        ))}
-      </nav>
-    ) : clientId ? <p className="muted">{query.trim() ? 'Совпадений нет' : 'Список пуст'}</p>
-    : <Empty title={query.trim() ? 'Подопечные не найдены' : 'Подопечных пока нет'}>
-        {query.trim() && <button className="soft" onClick={() => setQuery('')}>Сбросить поиск</button>}
-      </Empty>;
   return (
     <>
       <header className="top">
@@ -156,40 +124,16 @@ function Workspace({ api, logout, profile, onProfile }: AccountProps & { profile
           {profile.fullName}
         </button>
       </header>
-      {exercises ? <Catalog api={api} /> : clientId === null ? (
-        <main className="catalogpage clients-directory">
-          <ClientBreadcrumbs />
-          <div className="sectionhead workspaceheading">
-            <h1>Подопечные</h1>
-            <button className="primary" onClick={() => setModal('client')}>
-              <Plus size={17} /> Добавить подопечного
-            </button>
-          </div>
-          <div className="directory-filters">{filters}</div>
-          {clients}
-        </main>
-      ) : <div className="layout">
-        <aside className="sidebar">
-          <div className="sidehead">
-            <h2>
-              <UsersRound size={20} /> Подопечные
-            </h2>
-            <button
-              className="iconbtn add"
-              aria-label="Добавить подопечного"
-              onClick={() => setModal('client')}
-            >
-              <Plus size={18} />
-            </button>
-          </div>
-          {filters}
-          {clients}
-        </aside>
-        <main className="workarea">
+      {exercises ? <Catalog key={hash} api={api} groupId={categoryMatch ? Number(categoryMatch[1]) : null} /> : clientId === null ? (
+        <ClientDirectory api={api} version={version} refresh={refresh} query={query} setQuery={setQuery}
+          archived={archived} setArchived={setArchived} add={() => setModal('client')} unavailableClient={unavailableClient} />
+      ) : (
+        <main className="catalogpage">
           <ClientWorkspace key={clientId} api={api} id={clientId} version={version} onChange={refresh}
-            onDeleted={() => { window.location.hash = 'clients'; refresh(); }} />
+            onUnavailable={returnFromUnavailableClient}
+            onDeleted={() => { window.location.replace('#clients'); refresh(); }} />
         </main>
-      </div>}
+      )}
       {modal === 'client' && (
         <Dialog title="Новый подопечный" close={close}>
           <ClientForm
@@ -206,14 +150,7 @@ function Workspace({ api, logout, profile, onProfile }: AccountProps & { profile
       {modal === 'account' && (
         <Dialog title="Профиль тренера" close={close}>
           <div className="formstack">
-            <div className="identity">
-              <span className="avatar">{initials(profile.fullName)}</span>
-              <div>
-                <strong>{profile.fullName}</strong>
-                <small>{profile.username}</small>
-                {profile.phone && <small>{profile.phone}</small>}
-              </div>
-            </div>
+            <TrainerIdentity api={api} profile={profile} onProfile={onProfile} />
             <ProfileBotLinks key={profile.trainingBotLinkedAt ?? 'unlinked'} api={api}
               linked={!!profile.trainingBotLinkedAt} onConnected={onProfile} />
             <button className="soft" onClick={() => logout()}>
@@ -226,6 +163,86 @@ function Workspace({ api, logout, profile, onProfile }: AccountProps & { profile
   );
 }
 
+function TrainerIdentity({ api, profile, onProfile }: { api: Api; profile: Trainer; onProfile: (profile: Trainer) => void }) {
+  const [editing, setEditing] = useState(false);
+  if (editing) {
+    const [first, ...rest] = profile.fullName.trim().split(/\s+/);
+    return <Form label="Сохранить" secondaryAction={<button type="button" className="plain" onClick={() => setEditing(false)}>Отмена</button>}
+      submit={async data => {
+        const saved = await api.request<Trainer>('/trainers/me', 'PUT', {
+          firstName: text(data, 'firstName'), lastName: text(data, 'lastName'),
+        });
+        onProfile(saved);
+        setEditing(false);
+      }}>
+      <div className="fields two">
+        <label>Имя<input name="firstName" autoFocus required maxLength={253} autoComplete="given-name" defaultValue={profile.firstName ?? first} /></label>
+        <label>Фамилия<input name="lastName" required maxLength={253} autoComplete="family-name"
+          defaultValue={profile.lastName ?? (profile.firstName ? '' : rest.join(' '))} /></label>
+      </div>
+    </Form>;
+  }
+  return <div className="identity trainer-identity">
+    <span className="avatar">{initials(profile.fullName)}</span>
+    <div className="trainer-names">
+      <strong>{profile.fullName}</strong>
+      <small>{profile.username}</small>
+      {profile.phone && <small>{profile.phone}</small>}
+    </div>
+    <button className="soft" aria-label="Изменить имя и фамилию" onClick={() => setEditing(true)}><Pencil size={15} /> Изменить</button>
+  </div>;
+}
+
+function ClientDirectory({ api, version, refresh, query, setQuery, archived, setArchived, add, unavailableClient }: {
+  api: Api; version: number; refresh: () => void; query: string; setQuery: (value: string) => void;
+  archived: boolean; setArchived: (value: boolean) => void; add: () => void; unavailableClient: boolean;
+}) {
+  const list = useResource<Client[]>(api, '/clients?includeArchived=' + archived, version);
+  const shown = list.data?.filter((c) =>
+    c.fullName.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()),
+  );
+  const filters = <>
+    <label className="search">
+      <Search size={17} />
+      <input type="search" aria-label="Поиск подопечного" placeholder="Поиск по имени или фамилии"
+        value={query} onChange={(e) => setQuery(e.target.value)} />
+    </label>
+    <label className="check">
+      <input type="checkbox" checked={archived} onChange={(e) => setArchived(e.target.checked)} />
+      Включая архив
+    </label>
+  </>;
+  const clients = !shown ? <Status error={list.error} retry={refresh} />
+    : shown.length ? (
+      <nav className="directory-list" aria-label="Список подопечных">
+        {shown.map((c) => (
+          <a key={c.id} href={'#clients/' + c.id}>
+            <span className={'avatar tone' + (c.id % 3)} aria-hidden="true">{initials(c.fullName)}</span>
+            <span className="client-name">{c.fullName}
+              {c.goal && <small>{c.goal}</small>}
+              {c.status === 'ARCHIVED' && <small>В архиве</small>}
+            </span>
+            <ChevronRight size={18} aria-hidden="true" />
+          </a>
+        ))}
+      </nav>
+    )
+    : <Empty title={query.trim() ? 'Подопечные не найдены' : 'Подопечных пока нет'}>
+        {query.trim() && <button className="soft" onClick={() => setQuery('')}>Сбросить поиск</button>}
+      </Empty>;
+  return <main className="catalogpage">
+    <div className="sectionhead workspaceheading">
+      <div>
+        <h1>Подопечные</h1>
+        {unavailableClient && <p className="subtitle" role="status">Карточка по этой ссылке недоступна.</p>}
+      </div>
+      <button className="primary" onClick={add}><Plus size={17} /> Добавить подопечного</button>
+    </div>
+    <div className="directory-filters">{filters}</div>
+    {clients}
+  </main>;
+}
+
 function ClientForm({ api, client, done }: { api: Api; client?: Client; done: (c: Client) => void }) {
   const [revision, setRevision] = useState(0);
   const goals = useResource<{ id: number; name: string }[]>(api, '/catalog/goals', revision);
@@ -236,32 +253,26 @@ function ClientForm({ api, client, done }: { api: Api; client?: Client; done: (c
       submit={async (d) => {
         done(
           await api.request<Client>(client ? '/clients/' + client.id : '/clients', client ? 'PUT' : 'POST', {
-            fullName: text(d, 'name'),
-            phone: text(d, 'phone') || null,
+            firstName: text(d, 'firstName'),
+            lastName: text(d, 'lastName') || null,
             goal: text(d, 'goal') || null,
             notes: text(d, 'notes') || null,
           }),
         );
       }}
     >
-      <label>
-        Имя подопечного
-        <input name="name" required maxLength={255} defaultValue={client?.fullName} autoComplete="off" />
-      </label>
       <div className="fields two">
-        <label>
-          Телефон
-          <input type="tel" name="phone" maxLength={64} defaultValue={client?.phone ?? ''} />
-        </label>
-        <label>
-          Цель
-          <select name="goal" defaultValue={client?.goal ?? ''}>
-            <option value="">Не указана</option>
-            {client?.goal && !goals.data.some(g => g.name === client.goal) && <option>{client.goal}</option>}
-            {goals.data.map(g => <option key={g.id}>{g.name}</option>)}
-          </select>
-        </label>
+        <label>Имя<input name="firstName" required maxLength={255} defaultValue={client?.firstName} /></label>
+        <label>Фамилия<input name="lastName" required={!client || !!client.lastName} maxLength={255} defaultValue={client?.lastName ?? ''} /></label>
       </div>
+      <label>
+        Цель
+        <select name="goal" defaultValue={client?.goal ?? ''}>
+          <option value="">Не указана</option>
+          {client?.goal && !goals.data.some(g => g.name === client.goal) && <option>{client.goal}</option>}
+          {goals.data.map(g => <option key={g.id}>{g.name}</option>)}
+        </select>
+      </label>
       <label>
         Заметки
         <textarea name="notes" rows={3} defaultValue={client?.notes ?? ''} />
@@ -276,17 +287,24 @@ function ClientWorkspace({
   version,
   onChange,
   onDeleted,
+  onUnavailable,
 }: {
   api: Api;
   id: number;
   version: number;
   onChange: () => void;
   onDeleted: () => void;
+  onUnavailable: (id: number) => void;
 }) {
   const [tab, setTab] = useState<'workouts' | 'metrics' | 'profile'>('workouts');
   const [action, setAction] = useState<'edit' | 'status' | 'delete' | null>(null);
   const resource = useResource<Client>(api, '/clients/' + id, version);
   const c = resource.data;
+  const unavailable = resource.errorStatus === 404 || resource.errorStatus === 403;
+  useEffect(() => {
+    if (unavailable) onUnavailable(id);
+  }, [unavailable, id, onUnavailable]);
+  if (unavailable) return null;
   if (!c) return <>
     <nav className="crumb" aria-label="Путь по кабинету"><a href="#clients">К списку подопечных</a></nav>
     <Status error={resource.error} retry={onChange} />
@@ -300,7 +318,9 @@ function ClientWorkspace({
   return (
     <>
       <div className="workspaceheading">
-        <ClientBreadcrumbs name={c.fullName} />
+        <nav className="crumb" aria-label="Путь по кабинету">
+          <a href="#clients">Подопечные</a><span aria-hidden="true">/</span><span aria-current="page">{c.fullName}</span>
+        </nav>
         <div className="row-between">
           <div>
             <h1>{c.fullName}</h1>
@@ -338,7 +358,6 @@ function ClientWorkspace({
           </div>
           <dl className="profiledata">
             {[
-              ['Телефон', c.phone],
               ['Цель', c.goal ? c.goal : null],
               ['Статус', isArchived ? 'В архиве' : 'Активный'],
               ['Заметки', c.notes],

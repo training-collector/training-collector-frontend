@@ -31,7 +31,7 @@ function AuthLayout({ children }: { children: ReactNode }) {
   );
 }
 
-export function Auth({ enter, sessionExpired }: { enter: (token: string) => void; sessionExpired: boolean }) {
+export function Auth({ enter, sessionExpired, initialUsername }: { enter: (token: string) => void; sessionExpired: boolean; initialUsername: string }) {
   const [signup, setSignup] = useState(false);
   const [loginName, setLoginName] = useState('');
   if (loginName) return <CodeLogin username={loginName} enter={enter} back={() => setLoginName('')} />;
@@ -39,7 +39,7 @@ export function Auth({ enter, sessionExpired }: { enter: (token: string) => void
     <AuthLayout>
       <h2>{signup ? 'Создать аккаунт' : 'Войти в кабинет'}</h2>
       {sessionExpired && !signup && <p className="muted">Сессия завершена. Войдите снова.</p>}
-      <Form key={String(signup)} label={signup ? 'Зарегистрироваться' : 'Получить код'}
+      <Form key={String(signup)} label={signup ? 'Зарегистрироваться' : 'Вход'}
         secondaryAction={<button type="button" className={signup ? 'plain' : 'soft'} onClick={() => setSignup(!signup)}>
           {signup ? 'Вернуться ко входу' : 'Зарегистрироваться'}
         </button>} submit={async (data) => {
@@ -51,7 +51,7 @@ export function Auth({ enter, sessionExpired }: { enter: (token: string) => void
         });
         enter(result.token);
       }}>
-        <label>Username<input name="username" required maxLength={signup ? 64 : 254} autoComplete="username"
+        <label>Username<input name="username" required maxLength={signup ? 64 : 254} autoComplete="username" defaultValue={signup ? '' : initialUsername}
           autoCapitalize="none" spellCheck={false} /></label>
         {signup && <div className="signupnames">
           <label>Имя<input name="firstName" required maxLength={253} autoComplete="given-name" /></label>
@@ -62,7 +62,7 @@ export function Auth({ enter, sessionExpired }: { enter: (token: string) => void
   );
 }
 
-interface Challenge { challenge: string; botUrl: string; expiresAt: string }
+interface Challenge { challenge: string; botUrl: string; expiresAt: string; deliveryDelaySeconds?: number }
 const openedChallengeKey = 'training-collector.opened-login';
 
 function CodeDigits() {
@@ -108,7 +108,7 @@ export function CodeLogin({ username, signup, enter, back }: {
 }) {
   const [challenge, setChallenge] = useState<Challenge>();
   const [error, setError] = useState('');
-  const [revision, setRevision] = useState(0);
+  const [request, setRequest] = useState({ revision: 0, resend: false });
   const [opened, setOpened] = useState(() => sessionStorage.getItem(openedChallengeKey));
   const signupApi = signup?.api;
   const inUse = signup?.profile.signupTelegramInUse === true;
@@ -124,16 +124,18 @@ export function CodeLogin({ username, signup, enter, back }: {
     setError(''); setChallenge(undefined);
     async function loadChallenge() {
       try {
-        const result = signupApi
+        const result: Challenge = signupApi && !approved
           ? await signupApi.request<Link & { challenge: string }>('/trainers/me/telegram-link', 'POST', undefined, controller.signal)
               .then(({ url, challenge, expiresAt }) => ({ botUrl: url, challenge, expiresAt }))
-          : await new Api().request<Challenge>('/auth/login', 'POST', { username }, controller.signal);
+          : await new Api().request<Challenge>('/auth/login', 'POST', { username, resend: request.resend }, controller.signal);
         if (controller.signal.aborted) return;
         if (!result.challenge || !result.botUrl) throw new Error('Не удалось запросить код. Попробуйте ещё раз.');
         setChallenge(result);
-        expiry = window.setTimeout(() => {
-          setChallenge(undefined); setError('Время действия кода истекло.');
-        }, Math.max(0, Date.parse(result.expiresAt) - Date.now()));
+        if (!enteringCode) {
+          expiry = window.setTimeout(() => {
+            setChallenge(undefined); setError('Срок действия ссылки истёк.');
+          }, Math.max(0, Date.parse(result.expiresAt) - Date.now()));
+        }
       } catch (e) {
         if (controller.signal.aborted) return;
         if (e instanceof ApiError && e.status === 503 && retriesLeft > 0) {
@@ -146,13 +148,13 @@ export function CodeLogin({ username, signup, enter, back }: {
     }
     void loadChallenge();
     return () => { controller.abort(); window.clearTimeout(retryTimer); window.clearTimeout(expiry); };
-  }, [username, signupApi, revision, inUse, linked, approved]);
+  }, [username, signupApi, request, inUse, linked, approved, enteringCode]);
   const statusError = useTelegramProfile(signupApi, !!signup && !inUse && !approved,
     signup?.onProfile);
   function retry() {
     sessionStorage.removeItem(openedChallengeKey);
     setOpened(null);
-    setRevision(n => n + 1);
+    setRequest(previous => ({ revision: previous.revision + 1, resend: enteringCode }));
   }
   if (signup && !inUse && !approved && (linked || (challenge && opened === challenge.challenge))) return <AuthLayout>
     <h2>{linked ? 'Заявка на рассмотрении' : 'Откройте Telegram'}</h2>
@@ -178,10 +180,10 @@ export function CodeLogin({ username, signup, enter, back }: {
       : 'Откройте бота авторизации и нажмите «Старт». После этого администратор увидит вашу заявку.'}</p>
     <div className="formstack">
       {enteringCode ?
-        <Form key={revision} label="Войти" submitDisabled={!challenge} submit={async (data) => {
+        <Form key={request.revision} label="Войти" submitDisabled={!challenge} submit={async (data) => {
           if (!challenge) return;
           const result = await new Api().request<{ token: string }>('/auth/login/verify', 'POST', {
-            challenge: challenge.challenge, code: data.getAll('digit').join(''),
+            username, code: data.getAll('digit').join(''),
           });
           sessionStorage.removeItem(openedChallengeKey);
           enter(result.token);
@@ -195,6 +197,10 @@ export function CodeLogin({ username, signup, enter, back }: {
         !error && <button className="primary" disabled><Send size={16} /> Открыть бота авторизации</button>
       }
       {(error || statusError) && <Notice>{error || statusError}</Notice>}
+      {request.resend && challenge && <p className="muted" role="status">
+        {challenge.deliveryDelaySeconds ? `Повторная отправка запланирована примерно через ${challenge.deliveryDelaySeconds} с.`
+          : 'Повторная отправка запрошена.'} Введите код из последнего сообщения бота.
+      </p>}
       {!challenge && !error && <p role="status">{enteringCode ? 'Запрашиваем код…' : 'Готовим ссылку…'}</p>}
       {!signup && challenge && <a className="code-chat-link" href={challenge.botUrl} target="_blank" rel="noopener noreferrer">Открыть чат с ботом</a>}
       {((enteringCode && challenge) || error) && <button className={enteringCode ? 'plain' : 'primary'} onClick={retry}>

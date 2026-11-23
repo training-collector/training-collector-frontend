@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Activity, AlertCircle, X } from 'lucide-react';
-import { Api, errorText } from './model';
+import { Api, ApiError, errorText } from './model';
 
 export function Brand() {
   return (
@@ -104,8 +104,10 @@ export function Form({
     </form>
   );
 }
-export function useResource<T>(api: Api, path: string, version = 0): { data?: T; error?: string } {
-  const [state, setState] = useState<{ api: Api; path: string; data?: T; error?: string }>();
+type Resource<T> = { data?: T; error?: string; errorStatus?: number };
+
+export function useResource<T>(api: Api, path: string, version = 0): Resource<T> {
+  const [state, setState] = useState<Resource<T> & { api: Api; path: string }>();
   useEffect(() => {
     const controller = new AbortController();
     api
@@ -114,7 +116,9 @@ export function useResource<T>(api: Api, path: string, version = 0): { data?: T;
         if (!controller.signal.aborted) setState({ api, path, data });
       })
       .catch((e) => {
-        if (!controller.signal.aborted) setState({ api, path, error: errorText(e) });
+        if (!controller.signal.aborted) {
+          setState({ api, path, error: errorText(e), errorStatus: e instanceof ApiError ? e.status : undefined });
+        }
       });
     return () => controller.abort();
   }, [api, path, version]);
@@ -122,7 +126,7 @@ export function useResource<T>(api: Api, path: string, version = 0): { data?: T;
 }
 export function Status({ error, retry }: { error?: string; retry?: () => void }) {
   return error ? (
-    <div>
+    <div className="request-error">
       <Notice>{error}</Notice>
       {retry && (
         <button className="soft" onClick={retry}>

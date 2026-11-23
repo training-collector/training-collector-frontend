@@ -7,6 +7,7 @@ import {
   number,
   text,
   type CatalogItem,
+  type MuscleGroup,
   type Detail,
   type Exercise,
   type Result,
@@ -79,12 +80,14 @@ export function readSet(d: FormData, prefix: string): Result {
 }
 function ExerciseFields({
   catalog,
+  groups,
   prefix,
   index,
   initial,
   remove,
 }: {
   catalog: CatalogItem[];
+  groups: MuscleGroup[];
   prefix: string;
   index: number;
   initial?: Exercise;
@@ -115,7 +118,12 @@ function ExerciseFields({
         Из справочника
         <select name={prefix + 'choice'} defaultValue={savedInitial?.id ?? ''} required>
           <option value="" disabled>Выберите упражнение</option>
-          {catalog.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+          {groups.map(group => {
+            const choices = catalog.filter(item => item.muscleGroupId === group.id);
+            return choices.length > 0 && <optgroup key={group.id} label={group.name}>
+              {choices.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+            </optgroup>;
+          })}
         </select>
       </label>
       <label>
@@ -214,13 +222,14 @@ export function WorkoutForm({
 }) {
   const [rev, setRev] = useState(0);
   const catalog = useResource<CatalogItem[]>(api, '/catalog/exercises', rev);
+  const groups = useResource<MuscleGroup[]>(api, '/catalog/muscle-groups', rev);
   const [exercises, setExercises] = useState(() =>
     (copy?.exercises.length ? copy.exercises.map((x) => ({ ...x.exercise, sets: x.sets })) : [undefined]).map(
       (value) => ({ key: newKey(), value }),
     ),
   );
   const reload = () => setRev((n) => n + 1);
-  if (!catalog.data) return <Status error={catalog.error} retry={reload} />;
+  if (!catalog.data || !groups.data) return <Status error={catalog.error || groups.error} retry={reload} />;
   if (!catalog.data.length) return <p>Администратор ещё не опубликовал упражнения для тренировок.</p>;
   const addOnly = workoutId !== undefined;
   return (
@@ -245,6 +254,7 @@ export function WorkoutForm({
         <ExerciseFields
           key={ex.key}
           catalog={catalog.data!}
+          groups={groups.data!}
           index={i}
           prefix={'e' + ex.key}
           initial={ex.value}

@@ -1,9 +1,9 @@
 interface Person {
   id: number;
   fullName: string;
-  phone: string | null;
 }
 export interface Trainer extends Person {
+  phone: string | null;
   username: string | null;
   firstName: string | null;
   lastName: string | null;
@@ -13,13 +13,18 @@ export interface Trainer extends Person {
   signupTelegramInUse: boolean;
 }
 export interface Client extends Person {
+  firstName: string;
+  lastName: string | null;
   goal: string | null;
   notes: string | null;
   status: 'ACTIVE' | 'ARCHIVED';
 }
-export interface CatalogItem {
+export interface MuscleGroup {
   id: number;
   name: string;
+}
+export interface CatalogItem extends MuscleGroup {
+  muscleGroupId: number;
   description: string | null;
 }
 export interface Result {

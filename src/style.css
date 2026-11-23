@@ -197,7 +197,6 @@ strong {
 .actions,
 .row-between,
 .sectionhead,
-.sidehead,
 .top,
 .brand,
 .identity,
@@ -214,8 +213,7 @@ strong {
 }
 .row-between,
 .top,
-.sectionhead,
-.sidehead {
+.sectionhead {
   justify-content: space-between;
   gap: 12px;
 }
@@ -432,6 +430,11 @@ label small {
   flex: none;
   margin-top: 2px;
 }
+.request-error {
+  display: grid;
+  gap: 12px;
+  justify-items: start;
+}
 .account {
   background: #fff;
   color: var(--ink);
@@ -474,31 +477,13 @@ label small {
   font-size: 1.55rem;
   border-radius: 16px;
 }
-.layout {
-  display: grid;
-  grid-template-columns: minmax(220px, 265px) minmax(0, 1fr);
-  max-width: 1500px;
-  margin: auto;
-  min-height: calc(100dvh - 73px);
-}
-.sidebar {
-  padding: 34px 17px 32px;
-  background: #fafafa;
-  border: 1px solid var(--line);
-  border-width: 0 1px;
-}
-.sidehead h2,
 .identity {
   display: flex;
   align-items: center;
   gap: 9px;
 }
-.sidehead h2 {
-  font-size: 1.13rem;
-}
-.add {
-  background: var(--soft);
-}
+.trainer-identity { flex-wrap: wrap; }
+.trainer-names { min-width: 0; flex: 1 1 130px; overflow-wrap: anywhere; }
 .search {
   display: flex;
   align-items: center;
@@ -545,12 +530,6 @@ label small {
   height: 15px;
   accent-color: var(--ink);
 }
-.clientlist {
-  display: grid;
-  gap: 4px;
-  margin: 16px 0;
-}
-.clientlist a,
 .directory-list a {
   display: flex;
   align-items: center;
@@ -560,16 +539,6 @@ label small {
   font-weight: 550;
   overflow-wrap: anywhere;
 }
-.clientlist a {
-  padding: 9px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-}
-.clientlist a[aria-current] {
-  background: #eaeaea;
-  border-color: var(--silver);
-}
-.clientlist a:hover,
 .directory-list a:hover {
   background: var(--soft);
 }
@@ -601,10 +570,6 @@ label small {
 .directory-list a + a { border-top: 1px solid var(--line); }
 .directory-list a > svg { flex: none; margin-left: auto; color: var(--muted); }
 .client-name small { font-weight: 450; margin-top: 3px; }
-.workarea {
-  padding: 36px clamp(22px, 4vw, 64px) 64px;
-  min-width: 0;
-}
 .crumb {
   flex-wrap: wrap;
   font-size: 0.84rem;
@@ -925,6 +890,9 @@ body:has(dialog[open]) {
   border-top: 1px solid var(--line);
 }
 .exercise-details { min-width: 0; }
+.catalog-group + .catalog-group { margin-top: 24px; }
+.catalog-group h2 { font-size: 1.1rem; margin-bottom: 10px; }
+.catalog-group h2 a { color: inherit; text-underline-offset: 3px; }
 .exercise-details p { margin-top: 3px; color: var(--muted); font-size: .88rem; white-space: pre-wrap; }
 .cataloglist li > button { margin-left: auto; flex: none; }
 .cataloglist li svg {
@@ -949,12 +917,6 @@ body:has(dialog[open]) {
   }
 }
 @media (max-width: 850px) {
-  .layout {
-    grid-template-columns: 210px minmax(0, 1fr);
-  }
-  .workarea {
-    padding: 27px 20px;
-  }
   .authgrid {
     padding: 0 20px;
     grid-template-columns: 1fr 1.1fr;
@@ -1032,39 +994,6 @@ body:has(dialog[open]) {
   }
   .authpanel .formstack {
     margin-top: 16px;
-  }
-  .layout {
-    display: block;
-  }
-  .sidebar {
-    padding: 13px 16px;
-    border-width: 0 0 1px;
-    display: grid;
-    grid-template-columns: 1fr auto;
-    gap: 8px 13px;
-    align-items: center;
-  }
-  .sidehead {
-    grid-column: 1/-1;
-  }
-  .sidebar .search {
-    margin: 0;
-  }
-  .clientlist {
-    display: flex;
-    overflow-x: auto;
-    margin: 0;
-    grid-column: 1/-1;
-  }
-  .clientlist a {
-    flex: none;
-    max-width: 245px;
-  }
-  .sidebar > .muted {
-    grid-column: 1/-1;
-  }
-  .workarea {
-    padding: 20px 16px 40px;
   }
   .crumb {
     margin-bottom: 12px;
